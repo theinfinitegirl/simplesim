@@ -1,7 +1,9 @@
 import ply.lex as lex
 import ply.yacc as yacc
 
-tokens = "NUMBER DIRECTIVE LABEL SYMBOL STRING NEWLINE".split()
+import program as prog
+
+tokens = "NUMBER DIRECTIVE LABEL SYMBOL STRING REGISTER NEWLINE".split()
 literals = "=,@"
 
 
@@ -70,10 +72,16 @@ def t_NUMBER(t):
         t.value = int(t.value)
     return t
 
+def t_REGISTER(t):
+    r'[rR]\d\d?'
+    t.value = int(t.value[1:])
+    return t
+
 def t_NEWLINE(t):
     r'\n'
     t.lexer.lineno += 1
     return t
+
 
 t_SYMBOL = r'\w+'
 t_ignore = ' \t'
@@ -111,19 +119,60 @@ def p_lines(p):
 
 def p_line(p):
   """
-  line : something
-       | LABEL something
+  line : statement
+       | LABEL statement
   """
   pass
 
-def p_something(p):
+def p_statement(p):
   """
-  something : NEWLINE
-            | SYMBOL NEWLINE
+  statement : NEWLINE
+            | instruction NEWLINE
             | DIRECTIVE NEWLINE
   """
   pass
 
+def p_instruction(p):
+    """
+    instruction : SYMBOL arglist
+    """
+    print p[2]
+    try:
+        op = prog.AllOps[p[1].upper()]
+        if len(p[2]) != len(op.args):
+           raise prog.ASMError("Operation %s takes %d arguments." % (tok, len(op.args)))
+         
+
+    except KeyError:
+        raise prog.ASMError("Unknown operation " + p[1] + " at line: " + str(p.lineno(1)) )
+
+
+def p_arglist_empty(p):
+    'arglist : empty'
+    p[0] = []
+
+def p_arglist(p):
+    """ arglist : arg
+                | arglist ',' arg
+    """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[1].append(p[3])
+        p[0] = p[1]
+
+def p_arg_register(p):
+    " arg : REGISTER "
+    p[0] = prog.RegisterArg(p[1])
+
+def p_arg_number(p):
+    "arg : NUMBER"
+    p[0] = prog.ConstantArg(p[1])
+
+def p_arg_symbol(p):
+    "arg : SYMBOL"
+    p[0] = prog.SymbolArg(p[1])
+    
 def p_empty(p):
   'empty :'
   pass
