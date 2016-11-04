@@ -22,10 +22,10 @@ class Op(object):
 AllOps = {}
 
 class Instruction(object):
-    def __init__(self, op, addr, args):
+    def __init__(self, op, args, addr):
         self.op = op
-        self.addr = addr
         self.args = args[:]
+        self.addr = addr
         
     def __repr__(self):
         return (("%04x" % self.addr) + ": <" + self.op.mnemonic + " "
@@ -34,6 +34,29 @@ class Instruction(object):
     def Size(self):
         return self.op.Size()
     
+class Segment(object):
+    def __init__(self):
+        self._cur_offset = 0;
+        self.instructions = []
+        self.labels = {}
+
+    @property
+    def cur_offset(self):
+        return self._cur_offset;
+
+    def add_instruction(self, op, args):
+        inst = Instruction(op, args, self.cur_offset)
+        self.instructions.append(inst)
+        self._cur_offset += len(inst.op.opcode) / 8
+        return inst
+    
+    def add_label(self, label):
+        if label in self.labels:
+            raise ASMError("Duplicate label: %s" % label)
+        self.labels[label] = self.cur_offset;
+
+
+
 # Arg types:
 kArgConst = 1
 kArgReg = 2
@@ -44,20 +67,20 @@ kArgZReg = 5
 #Addressing Flags
 kDirect = 0
 
-ArgumentType = namedtuple("ArgumentType", "symbol bits signed description")
+ArgumentType = namedtuple("ArgumentType", "symbol type bits signed description")
 
 kArgTypes = [
-    ArgumentType("Rd", 5, False, "Destination register"),
-    ArgumentType("Rr", 5, False, "Source register"),
-    ArgumentType("K", 8, False, "Constant data"),
-    ArgumentType("k", None, True, "Constant address"),
-    ArgumentType("b", 3, False, "Bit in a register"),
-    ArgumentType("s", 3, False, "Bit in the status register"),
-    ArgumentType("X", 0, False, "Indirect address register (R27:R26)"),
-    ArgumentType("Y", 0, False, "Indirect address register (R29:R28)"),
-    ArgumentType("Z", 0, False, "Indirect address register (R31:R30)"),
-    ArgumentType("A", None, False, "IO location address"),
-    ArgumentType("q", 6, False, "Displacement for direct addressing"),
+    ArgumentType("Rd", kArgReg, 5, False, "Destination register"),
+    ArgumentType("Rr", kArgReg, 5, False, "Source register"),
+    ArgumentType("K", kArgConst, 8, False, "Constant data"),
+    ArgumentType("k", kArgConst, None, True, "Constant address"),
+    ArgumentType("b", kArgConst, 3, False, "Bit in a register"),
+    ArgumentType("s", kArgConst, 3, False, "Bit in the status register"),
+    ArgumentType("X", kArgReg, 0, False, "Indirect address register (R27:R26)"),
+    ArgumentType("Y", kArgReg, 0, False, "Indirect address register (R29:R28)"),
+    ArgumentType("Z", kArgReg, 0, False, "Indirect address register (R31:R30)"),
+    ArgumentType("A", kArgConst, None, False, "IO location address"),
+    ArgumentType("q", kArgConst, 6, False, "Displacement for direct addressing"),
     ]
     
 kArgTypesMap = dict((at.symbol,at) for at in kArgTypes)
