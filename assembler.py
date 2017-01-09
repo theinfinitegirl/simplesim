@@ -11,11 +11,15 @@ class ASMLexer(object):
         self.def_lookup_func = def_lookup_func
 
     reserved = {
-        ".EQU": "EQU",
-        ".DEF": "DEF",
-        ".ORG": "ORG",
+        ".BYTE": "BYTE",
         ".CSEG": "CSEG",
+        ".DB" : "DB",
+        ".DEF": "DEF",
         ".DSEG": "DSEG",
+        ".DW": "DW",
+        ".EQU": "EQU",
+        ".ORG": "ORG",
+        ".UNDEF": "UNDEF",
     }
 
     tokens = ("NUMBER LABEL SYMBOL STRING REGISTER NEWLINE".split() + 
@@ -33,7 +37,7 @@ class ASMLexer(object):
         print "escbs"
 
     def t_text_ESCAPED_QUOTE(self, t):
-        r'\"'
+        r'\\"'
         print "escquote"
         t.lexer.text_value += '"'
 
@@ -71,8 +75,12 @@ class ASMLexer(object):
         return t
 
     def t_NUMBER(self, t):
-        r'0x[0-9a-fA-F]+ | \$[0-9a-fA-F]+ | 0b[01]+ | \d+'
-        r'(\d+)|((\$|(0x))[0-9a-fA-F]+)'
+        r'-?(0x[0-9a-fA-F]+ | \$[0-9a-fA-F]+ | 0b[01]+ | \d+)'
+        #r'(\d+)|((\$|(0x))[0-9a-fA-F]+)'
+        sign = 1
+        if t.value.startswith('-'):
+            sign = -1
+            t.value = t.value[1:]
         if t.value.startswith('$'):
             t.value = int(t.value[1:], 16)
         elif t.value.startswith('0x'):
@@ -81,6 +89,7 @@ class ASMLexer(object):
             t.value = int(t.value[2:], 2)    
         else:
             t.value = int(t.value)
+        t.value *= sign
         return t
 
     def t_REGISTER(self, t):
@@ -95,7 +104,7 @@ class ASMLexer(object):
 
     def t_SYMBOL(self, t):
         r'[\w._]+'
-        t.type = reserved.get(t.value.upper(), 'SYMBOL')
+        t.type = self.reserved.get(t.value.upper(), 'SYMBOL')
         if t.type == 'SYMBOL':
             val = self.var_lookup_func(t.value)
             if val is not None:
@@ -153,6 +162,59 @@ class ASMParser(object):
       """
       pass
 
+
+    def p_constexpr_list(self, p):
+        """
+        constexpr_list : constexpr
+                       | constexpr_list ',' constexpr
+        """
+        if len(p) == 2:
+            p[0] = [p[1]]
+        else:
+            p[1].append(p[3])
+            p[0] = p[1]
+            
+
+    # Assembler Directives:
+    def p_byte_directive(self, p):
+        " statement : BYTE constexpr "
+        self.cur_seg.reserve_bytes(p[2]);
+
+
+    def p_code_segment(self, p):
+        " statement : CSEG "
+        self.cur_seg = prog.Segment("CSEG")
+        self.segments.append(self.cur_seg)
+
+    def p_data_segment(self, p):
+        " statement : DSEG "
+        self.cur_seg = prog.Segment("DSEG")
+        self.segments.append(self.cur_seg)
+
+    def p_db_directive(self, p):
+        " statement : DB constexpr_list "
+        # Need to add strings to constexpr list
+        self.cur_seg.define_bytes(p[2])
+
+    def p_dw_directive(self, p):
+        " statement : DW constexpr_list "
+        self.cur_seg.define_words(p[2])
+
+    def p_def_directive(self, p):
+        " statement : DEF SYMBOL '=' REGISTER"
+        if p[1] in self.defs:
+            print "Warning: redefining register:", p[1]
+        self.defs[p[2]] = p[4]
+
+    def p_undef_directive(self, p):
+        " statement : UNDEF SYMBOL "
+        # There's a bug here; the lexer will return the previously
+        # defined reg as a REGISTER, and remove its symbolic name.
+        if p[2] not in self.defs:
+            ASMError("Attempt to undefine unknown symbol: " + p[2])
+        self.defs.pop(p[2])
+        
+
     def p_equ_statement(self, p):
         """
         statement : EQU SYMBOL '=' constexpr
@@ -164,8 +226,14 @@ class ASMParser(object):
         else:
             varname, varval = p[1],p[3]
         if varname in self.variables:
-            print "Warning: redeclaring variable:", varname
+            ASMError("Can not redeclare variable:" + varname)
         self.variables[varname] = varval
+
+    def p_org_statement(self, p):
+        " statement : ORG constexpr "
+        self.cur_seg.set_origin(p[2])
+
+
 
     def p_instruction(self, p):
         """
@@ -208,7 +276,7 @@ class ASMParser(object):
         p[0] = prog.RegisterArg(p[1])
 
     def p_arg_number(self, p):
-        "arg : NUMBER"
+        "arg : constexpr"
         p[0] = prog.ConstantArg(p[1])
 
     def p_arg_symbol(self, p):
@@ -218,6 +286,10 @@ class ASMParser(object):
     def p_constexpr_num(self, p):
         "constexpr : NUMBER"
         p[0] = int(p[1])
+
+    def p_constexpr_str(self, p):
+        "constexpr : STRING"
+        p[0] = p[1]
 
     def p_constexpr_var(self, p):
         "constexpr : SYMBOL"
@@ -260,7 +332,7 @@ class ASMParser(object):
             self.build()
         self.variables = {}
         self.defs = {}
-        self.cur_seg = prog.Segment()
+        self.cur_seg = prog.Segment("CSEG")
         self.segments = [self.cur_seg]
         self.parser.parse(text)
         

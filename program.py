@@ -34,15 +34,70 @@ class Instruction(object):
     def Size(self):
         return self.op.Size()
     
+class DefinedBytes(Instruction):
+    def __init__(self, byte_vals, addr):
+        self.byte_vals = []
+        self.addr = addr
+        for idx, val in enumerate(byte_vals):
+            if isinstance(val, str):
+                self.byte_vals.extend(ord(c) for c in val)
+            else:
+                if val < -128 or val > 255:
+                    raise ASMError("Byte value out of range.")
+                self.byte_vals.append(val)
+
+    def __repr__(self):
+        return (("%04x" % self.addr) + ": DB: " + 
+                ', '.join(str(x) for x in self.byte_vals))
+
+    def Size(self):
+        return len(self.byte_vals) + len(self.byte_vals) % 2
+
+class DefinedWords(Instruction):
+    def __init__(self, word_vals, addr):
+        self.word_vals = word_vals
+        self.addr = addr
+        for idx, val in enumerate(word_vals):
+            if val < -32768 or val > 65535:
+                raise ASMError("Word value out of range.")
+    def __repr__(self):
+        return (("%04x" % self.addr) + ": DW: " + 
+                ', '.join(str(x) for x in self.word_vals))
+
+    def Size(self):
+        return len(self.word_vals) * 2
+
 class Segment(object):
-    def __init__(self):
-        self._cur_offset = 0;
+    def __init__(self, seg_type):
+        self.origin = None
+        self._cur_offset = 0
         self.instructions = []
         self.labels = {}
+        self.seg_type = seg_type
+        if seg_type not in ["CSEG", "DSEG", "ESEG"]:
+            raise ASMError("Invalid segment type")
+
+    def set_origin(self, address):
+        self.origin = address
 
     @property
     def cur_offset(self):
         return self._cur_offset;
+
+    def reserve_bytes(self, nbytes):
+        if self.seg_type not in ["DSEG", "ESEG"]:
+            raise ASMError("Can only reseve bytes in data segments.")
+        self._cur_offset += nbytes
+        
+    def define_bytes(self, byte_vals):
+        bytes_pseudo_op = DefinedBytes(byte_vals, self.cur_offset)
+        self.instructions.append(bytes_pseudo_op)
+        self._cur_offset += bytes_pseudo_op.Size()
+
+    def define_words(self, word_vals):
+        word_pseudo_op = DefinedWords(word_vals, self.cur_offset)
+        self.instructions.append(word_pseudo_op)
+        self._cur_offset += word_pseudo_op.Size()
 
     def add_instruction(self, op, args):
         inst = Instruction(op, args, self.cur_offset)
@@ -54,7 +109,8 @@ class Segment(object):
         if label in self.labels:
             raise ASMError("Duplicate label: %s" % label)
         self.labels[label] = self.cur_offset;
-
+    
+    
 
 
 # Arg types:
